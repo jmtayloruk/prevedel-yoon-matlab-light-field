@@ -773,12 +773,12 @@ VideoTIF            = settingRECT.VideoTIF;
 Crop                = settingRECT.Crop;
 inputFilePath       = settingRECT.imageFilePath;
 inputFileName       = settingRECT.imageFileName;
-moviePath           = [settingRECT.videoFilePath '\'];
+moviePath           = [settingRECT.videoFilePath '/'];
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if rectifySingleShot,
-    savePathIMG = ['..\Data\02_Rectified\' inputFilePath( findstr(inputFilePath, '\Data\01_Raw\') + 13 : end)];
+    savePathIMG = ['../Data/02_Rectified/' inputFilePath( findstr(inputFilePath, '/Data/01_Raw/') + 13 : end)];
     if exist(savePathIMG)==7,
        ; 
     else
@@ -786,7 +786,7 @@ if rectifySingleShot,
     end
 end
 if rectifyMovie, 
-    savePathVIDEO = ['..\Data\02_Rectified\' moviePath( findstr(moviePath, '\Data\01_Raw\') + 13 : end)];
+    savePathVIDEO = ['../Data/02_Rectified/' moviePath( findstr(moviePath, '/Data/01_Raw/') + 13 : end)];
     if exist(savePathVIDEO)==7,
        ; 
     else
@@ -799,7 +799,7 @@ end
 if rectifySingleShot,
     IMG_RAW = im2double(imread([inputFilePath inputFileName],'tiff'));
     IMG_Rect = ImageRect(IMG_RAW, xCenter, yCenter, dx, Nnum, Crop, XcutLeft, XcutRight, YcutUp, YcutDown);
-    imwrite(IMG_Rect,  [savePathIMG inputFileName(1:end-4) '_N' num2str(Nnum) '.tif'] ); 
+    imwrite(IMG_Rect,  [savePathIMG inputFileName(1:end-4) '_N' num2str(Nnum) '.tif'], 'Compression', 'none');
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -808,18 +808,37 @@ if rectifyMovie,
     disp('Rectifying movie...');
     List = dir(moviePath);
     
-    for k=1:size(List,1)-2,
-      fileName = List(k+2).name;
+    % JT: editing out filenames that are not tif files
+    % (or at least, editing out the hidden mac file that is likely to be
+    % there)
+    for k=size(List,1):-1:1,
+        disp(List(k).name)
+%        if strcmp(List(k).name, '.DS_Store'),
+        if ~endsWith(List(k).name, '.tif'),
+            List(k) = []
+        end
+    end
+
+    for k=1:size(List,1),
+      fileName = List(k).name;
       numInit = findstr(fileName , 'X') + 1;
       numEnd = findstr(fileName , '.tif') - 1;
-      ListNum(k+2) = str2num(fileName(numInit(end):numEnd));       
+      if isempty(numInit) || isempty(numEnd),
+          disp(['Bad file' fileName])
+      else
+          disp(['Will process' fileName k])
+      end
+      ListNum(k) = str2num(fileName(numInit(end):numEnd));       
     end
-            
-    LFmovie = uint16(zeros(size(IMG_Rect,1), size(IMG_Rect,2), size(List,1)-2));           
-    movieLength = size(List,1)-2
+     
+    disp(moviePath)
+    disp(List(1).name)
+    disp(List(3).name)
+    LFmovie = uint16(zeros(size(IMG_Rect,1), size(IMG_Rect,2), size(List,1)));           
+    movieLength = size(List,1);
     for k=1:movieLength,
         disp(['Rectifying Frame # ' num2str(k) ' / ' num2str(movieLength)]);
-        fileNumber = find(ListNum==k);        
+        fileNumber = find(ListNum==k);
         MV_RAW = im2double(imread([moviePath List(fileNumber).name],'tiff'));
         MV_Rect = ImageRect(MV_RAW, xCenter, yCenter, dx, Nnum, Crop, XcutLeft, XcutRight, YcutUp, YcutDown);
         if VideoTIF,
@@ -830,6 +849,7 @@ if rectifyMovie,
         end
         MV_Rect_uint = uint16(round(65535*MVgain*MV_Rect));
         LFmovie(:,:,k) = MV_Rect_uint;
+        imwrite(MV_Rect_uint,  [savePathIMG List(fileNumber).name(1:end-4) '_N' num2str(Nnum) '.tif'], 'Compression', 'none');
     end    
     
 

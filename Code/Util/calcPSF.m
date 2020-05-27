@@ -41,12 +41,23 @@ pattern3D( (1:centerPT), (centerPT:end),1 ) = patternAt;
 pattern3D(:,:,2) = rot90( pattern3D(:,:,1) , -1);
 pattern3D(:,:,3) = rot90( pattern3D(:,:,1) , -2);
 pattern3D(:,:,4) = rot90( pattern3D(:,:,1) , -3);
+% JT: bug fix: this use of 'max' below is rather esoteric and dangerous.
+% It relies on the documented behaviour that 'max' acting on complex
+% numbers will take the element with the maximum *absolute* valid.
+% HOWEVER, Matlab aggressively down-converts complex numbers to real
+% numbers if their imaginary part is identically zero. This is the case at
+% z=0, at which point 'max' does not behave in the way the original
+% programmer of this code intended.
+% The fix is to explicitly cast pattern3D at this point. It must be done
+% right here - if it is done any earlier, Matlab will quietly convert it 
+% back to real!
+%Original code: pattern = max(pattern3D,[],3);
+pattern = max(complex(pattern3D),[],3);
 
-pattern = max(pattern3D,[],3);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-%%%%%%%%%%%%%%%%%%% CALCAULTED  LF PSF %%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%% CALCULATED  LF PSF %%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 [f1,dx1,x1]=fresnel2D(pattern.*MLARRAY,scale,1*fml,lambda);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 

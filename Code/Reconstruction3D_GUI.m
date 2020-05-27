@@ -132,11 +132,14 @@ if exist('../PSFmatrix/')==7,
 else
    mkdir('../PSFmatrix/'); 
 end
-fileList = dir('../PSFmatrix/');    
+fileList = dir('../PSFmatrix/');   
+disp(fileList)
 PSFfileList = {'Empty'};
 i = 1;
 for k=1:size(fileList,1)-2,
-    tempFileName = fileList(i+2).name;
+    tempFileName = fileList(k+2).name;    % JT: changed this from i+2 to k+2 which seems to be a straight bug.
+    disp('here')
+    disp(tempFileName)
     if strcmp( tempFileName(end-3:end), '.mat' )
         PSFfileList{i} = tempFileName; 
         i = i+1;
@@ -178,7 +181,7 @@ settingRECON.DecimationRatio = get(handles.editDecimationRatio, 'string');
 settingRECON.check = 1;
 
 
-if mod(str2num(settingRECON.maxIter),1)>0 || str2num(settingRECON.maxIter)<1 ,
+if mod(str2num(settingRECON.maxIter),1)>0 || str2num(settingRECON.maxIter)<0 ,
    disp(['maxIter should be a positive integer number']); 
    settingRECON.check = 0;
 end
@@ -221,6 +224,9 @@ end
 if ~ (exist(['../PSFmatrix/' settingRECON.PSFfile ])==2),
     disp('PSF file is not selected');
     settingRECON.check = 0;
+else
+    disp('Using PSF file:')
+    disp(settingRECON.PSFfile)
 end
 
 
@@ -775,7 +781,7 @@ edgeSuppress = settingRECON.edgeSuppress;                   %% Since border area
 useDiskVariable = settingRECON.useDiskVariable;             %% Result can be directly saved the result on disk in a frame-by-frame manner. Recommended for large data. SSD is strongly recommended.
 
 
-savePath = ['..\Data\03_Reconstructed\' inputFilePath( findstr(inputFilePath, '\Data\02_Rectified\') + 19 : end)];
+savePath = ['../Data/03_Reconstructed/' inputFilePath( findstr(inputFilePath, '/Data/02_Rectified/') + 19 : end)];
 if exist(savePath)==7,
    ; 
 else
@@ -787,27 +793,38 @@ end
 %%%%%%%%% PREPARE PARALLAL COMPUTING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% This part is not necessary for MATLAB 2014a or later version
-if matlabpool('size') == 0 % checking to see if my pool is already open
-    matlabpool open
-end
+%if parpool('size') == 0 % checking to see if my pool is already open
+%    parpool open
+%end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%% Load Data %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-load(['../PSFmatrix/' PSFfile]);
-if class(H)=='double',
-    H = single(H);
-    Ht = single(Ht);
+if (1)
+    load(['../PSFmatrix/' PSFfile]);
+    if class(H)=='double',
+        H = single(H);
+        Ht = single(Ht);
+    end
+    disp(['Successfully loaded PSF matrix : ' PSFfile]);
+    disp(['Size of PSF matrix is : ' num2str(size(H)) ]);
+    assignin('base', 'H', H)
+    assignin('base', 'Ht', Ht)
+    assignin('base', 'CAindex', CAindex)
+else
+    H = evalin('base', 'H');
+    Ht = evalin('base', 'Ht');
+    CAindex = evalin('base', 'CAindex');
 end
-disp(['Successfully loaded PSF matrix : ' PSFfile]);
-disp(['Size of PSF matrix is : ' num2str(size(H)) ]);
+MV3Dgain = 1.0
 
 if strcmp( inputFileName(end-3:end), '.tif')
-    LFmovie = im2double(imread([inputFilePath inputFileName],'tiff'));
+    LFmovie = double(imread([inputFilePath inputFileName],'tiff'));   % JT changed to just 'double' to get match with python code
     FirstFrame = 1;
     LastFrame = 1;
     DecimationRatio = 1;
+    disp(['max for input ' num2str(max(LFmovie(:)))])
 elseif strcmp( inputFileName(end-3:end), '.mat')
     load([inputFilePath inputFileName]);  
 else
@@ -868,8 +885,28 @@ k = 1;
 for frame = ReconFrames,
     disp(['Volume reconstruction of Frame # ' num2str(k) ' / ' num2str(numFrames) ' is ongoing...']);
     LFIMG = single(LFmovie(:,:,frame));        
-    tic; Htf = backwardFUN(LFIMG); ttime = toc;
-    disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
+
+    t0 = tic;
+    if (1)    
+        tic; Htf = backwardFUN(LFIMG); ttime = toc;
+        disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
+        assignin('base', 'Htf', Htf)
+    else
+        Htf = evalin('base', 'Htf');
+    end
+    
+    backproject = double(Htf);
+    disp(size(backproject))
+    disp(max(backproject(:)))
+%    backproject = uint16(round(1*65535*backproject/max(backproject(:))));
+    backproject = uint16(round(10*backproject));
+    
+    Nnum = size(Ht,3);
+    imwrite( squeeze(backproject(:,:,1)), [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none');
+    for k = 2:size(backproject,3),
+        imwrite(squeeze(backproject(:,:,k)),  [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none', 'WriteMode', 'append');
+    end
+
     
     %%% Determined initial guess
     if k==1,
@@ -891,7 +928,20 @@ for frame = ReconFrames,
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    Xguess = deconvRL(forwardFUN, backwardFUN, Htf, maxIter, Xguess );
+    if 1
+        Xguess = deconvRL(forwardFUN, backwardFUN, Htf, maxIter, Xguess );
+    else
+        HXguess = forwardFUN(Xguess);
+        temp= uint16(round(HXguess/10.0));
+        disp(['forward shape ' num2str(size(HXguess))])
+        imwrite( squeeze(temp(:,:)), [savePath 'forwardProject_mat.tif']);
+    end
+
+    ttime = toc(t0);
+    disp(['Full calculation took ' num2str(ttime) ' secs']);
+
+
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     
@@ -942,13 +992,17 @@ if GPUcompute,
     Xguess = gather(Xguess);
 end
 
-XguessFinal = double(Xvolume);
+
+
+
+XguessFinal = double(XguessCPU);
 if saturate,
     XguessSAVE1 = uint16(round(1*65535*XguessFinal/max(XguessFinal(:))));
     XguessSAVE2 = uint16(round(saturationGain*65535*XguessFinal/max(XguessFinal(:))));    
     XguessVIEW = uint16(round(saturationGain*65535*XguessFinal/max(XguessFinal(:))));
 else    
     XguessSAVE1 = uint16(round(1*65535*XguessFinal/max(XguessFinal(:))));
+    XguessSAVE1 = uint16(round(XguessFinal*1e3));
     XguessVIEW = XguessSAVE1;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -956,14 +1010,14 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%% Save the results %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-imwrite( squeeze(XguessSAVE1(:,:,1)), [savePath 'Recon3D_' inputFileName(1:end-4) '.tif']);
+imwrite( squeeze(XguessSAVE1(:,:,1)), [savePath 'Recon3D_' inputFileName(1:end-4) '.tif'], 'Compression', 'none');
 for k = 2:size(XguessSAVE1,3),
-    imwrite(squeeze(XguessSAVE1(:,:,k)),  [savePath 'Recon3D_' inputFileName(1:end-4) '.tif'], 'WriteMode', 'append');
+    imwrite(squeeze(XguessSAVE1(:,:,k)),  [savePath 'Recon3D_' inputFileName(1:end-4) '.tif'], 'Compression', 'none', 'WriteMode', 'append');
 end
 if saturate,
-    imwrite( squeeze(XguessSAVE2(:,:,2)), [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '.tif']);
+    imwrite( squeeze(XguessSAVE2(:,:,2)), [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '.tif'], 'Compression', 'none');
     for k = 2:size(XguessSAVE2,3)
-        imwrite(squeeze(XguessSAVE2(:,:,k)),  [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '.tif'], 'WriteMode', 'append');
+        imwrite(squeeze(XguessSAVE2(:,:,k)),  [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '.tif'], 'Compression', 'none', 'WriteMode', 'append');
     end        
 end
 

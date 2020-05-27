@@ -689,9 +689,9 @@ eqtol = 1e-10;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%% PREPARE PARALLAL COMPUTING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-if matlabpool('size') == 0 % checking to see if my pool is already open
-    matlabpool open
-end
+%if parpool('size') == 0 % checking to see if my pool is already open
+%    parpool open
+%end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%% SIM PARAMETERS %%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -784,7 +784,11 @@ for eachpt=1:numpts,
     disp(['size of center area = ' num2str(length(centerArea_IL)) 'X' num2str(length(centerArea_IL)) ]);    
     
     %% excute PSF computing funcion
+    tic;
     [psfWAVE LFpsfWAVE] = calcPSF(p1, p2, p3, fobj, NA, x1space, x2space, pixelPitch/OSR, lambda, MLARRAY, d, M, n,  centerArea_IL);
+    ttime = toc;
+    disp(['  took ' num2str(ttime) ' secs']);
+    
     psfWAVE_STACK(:,:,eachpt)  = psfWAVE;
     LFpsfWAVE_STACK(:,:,eachpt)= LFpsfWAVE;    
 

@@ -10,6 +10,7 @@ zeroSlice = zeros(  size(projection,1) , size(projection, 2));
 
 for cc=1:x3length,
     tempSliceBack = zeroSlice;
+    tic;
     for aa=1:Nnum,
         for bb=1:Nnum,        
                           
@@ -20,6 +21,10 @@ for cc=1:x3length,
 
         end
     end
+    ttime = toc;
+    disp(['    z=' num2str(cc) ' took ' num2str(ttime) ' secs']);
+    assignin('base', 'tempSliceBack', tempSliceBack);
+    
+
     Backprojection(:,:,cc) = Backprojection(:,:,cc) + tempSliceBack;
 end
-
