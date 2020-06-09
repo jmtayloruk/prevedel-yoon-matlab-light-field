@@ -52,11 +52,6 @@ else
 end
 % End initialization code - DO NOT EDIT
 
-
-
-
-
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function saveState(handles)
@@ -138,7 +133,6 @@ PSFfileList = {'Empty'};
 i = 1;
 for k=1:size(fileList,1)-2,
     tempFileName = fileList(k+2).name;    % JT: changed this from i+2 to k+2 which seems to be a straight bug.
-    disp('here')
     disp(tempFileName)
     if strcmp( tempFileName(end-3:end), '.mat' )
         PSFfileList{i} = tempFileName; 
