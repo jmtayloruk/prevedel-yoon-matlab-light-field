@@ -128,7 +128,7 @@ else
    mkdir('../PSFmatrix/'); 
 end
 fileList = dir('../PSFmatrix/');   
-disp(fileList)
+%disp(fileList)
 PSFfileList = {'Empty'};
 i = 1;
 for k=1:size(fileList,1)-2,
@@ -811,7 +811,7 @@ else
     Ht = evalin('base', 'Ht');
     CAindex = evalin('base', 'CAindex');
 end
-MV3Dgain = 1.0
+MV3Dgain = 1.0;
 
 if strcmp( inputFileName(end-3:end), '.tif')
     LFmovie = double(imread([inputFilePath inputFileName],'tiff'));   % JT changed to just 'double' to get match with python code
@@ -859,7 +859,7 @@ elseif 0
     backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
 else
     PSFpath = ['../PSFmatrix/' PSFfile];
-    pyMatrixObject = initPLF(PSFpath, '/opt/anaconda3/bin/python');
+    pyMatrixObject = initPLF(PSFpath, '');
     forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, 0);
     backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, 0);
 end
