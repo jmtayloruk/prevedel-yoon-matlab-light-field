@@ -854,9 +854,14 @@ if GPUcompute,
     exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];    
     zeroImageEx = gpuArray(zeros(exsize, 'single'));
     disp(['FFT size is ' num2str(exsize(1)) 'X' num2str(exsize(2))]); 
-else
+elseif 0
     forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
     backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
+else
+    PSFpath = ['../PSFmatrix/' PSFfile];
+    pyMatrixObject = initPLF(PSFpath, '/opt/anaconda3/bin/python');
+    forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, 0);
+    backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, 0);
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -882,7 +887,7 @@ for frame = ReconFrames,
 
     t0 = tic;
     if (1)    
-        tic; Htf = backwardFUN(LFIMG); ttime = toc;
+        tic; Htf = backwardFUN(LFIMG); ttime = toc(t0);
         disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
         assignin('base', 'Htf', Htf)
     else
@@ -897,8 +902,8 @@ for frame = ReconFrames,
     
     Nnum = size(Ht,3);
     imwrite( squeeze(backproject(:,:,1)), [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none');
-    for k = 2:size(backproject,3),
-        imwrite(squeeze(backproject(:,:,k)),  [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none', 'WriteMode', 'append');
+    for kk = 2:size(backproject,3),
+        imwrite(squeeze(backproject(:,:,kk)),  [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none', 'WriteMode', 'append');
     end
 
     
@@ -934,7 +939,14 @@ for frame = ReconFrames,
     ttime = toc(t0);
     disp(['Full calculation took ' num2str(ttime) ' secs']);
 
-
+    % JT: if using my code, we will have ended up with a 4D result matrix,
+    % even if the third dimension size is 1.
+    % The subsequent Matlab code here expects a 3D result, 
+    % so we squeeze out the additional axis here
+    xgs = size(Xguess);
+    if (length(xgs) == 4) && (xgs(3) == 1)
+        Xguess = squeeze(Xguess);
+    end
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -951,7 +963,7 @@ for frame = ReconFrames,
     end    
     
     
-    %%% Save the results on disk (only if used specivied to use disk variable
+    %%% Save the results on disk (only if used specified to use disk variable
     if useDiskVariable,
         Xvolume = uint8(round(255*MV3Dgain*XguessCPU));  
         if edgeSuppress,                 
