@@ -132,7 +132,7 @@ fileList = dir('../PSFmatrix/');
 PSFfileList = {'Empty'};
 i = 1;
 for k=1:size(fileList,1)-2,
-    tempFileName = fileList(k+2).name;    % JT: changed this from i+2 to k+2 which seems to be a straight bug.
+    tempFileName = fileList(k+2).name;    % JT: changed this from i+2 to k+2 (seems to be simply a bug)
     disp(tempFileName)
     if strcmp( tempFileName(end-3:end), '.mat' )
         PSFfileList{i} = tempFileName; 
@@ -814,11 +814,19 @@ end
 MV3Dgain = 1.0;
 
 if strcmp( inputFileName(end-3:end), '.tif')
-    LFmovie = double(imread([inputFilePath inputFileName],'tiff'));   % JT changed to just 'double' to get match with python code
-    FirstFrame = 1;
-    LastFrame = 1;
-    DecimationRatio = 1;
-    disp(['max for input ' num2str(max(LFmovie(:)))])
+    % JT: enhanced this code to read multi-page TIFFs as a time series
+    % JT: this used to have im2double instead of double.
+    %     The former changes range to 0-1. I prefer to leave as the unchanged original,
+    %     which ensures I can compare this output with my own Python code.
+    LFmovie = double(imread([inputFilePath inputFileName],'tiff',FirstFrame));
+    subsequentFrames = FirstFrame+DecimationRatio:DecimationRatio:LastFrame;
+    n = 2;
+    for f = subsequentFrames,
+        temp = double(imread([inputFilePath inputFileName],'tiff',f));
+        LFmovie(:,:,n) = temp;
+        n = n + 1;
+    end
+    disp(['max for input ' num2str(max(LFmovie(:)))]);
 elseif strcmp( inputFileName(end-3:end), '.mat')
     load([inputFilePath inputFileName]);  
 else
@@ -840,8 +848,8 @@ disp(['Image size is ' num2str(volumeResolution(1)) 'X' num2str(volumeResolution
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%% Prepare for GPU computation %%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Nnum = size(H,3);
 if GPUcompute,
-    Nnum = size(H,3);
     backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
     forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
     
@@ -857,11 +865,14 @@ if GPUcompute,
 elseif 0
     forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
     backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
+    batchProcessingSize = 1;
 else
+    disp(['Using fast C/Python projection code'])
     PSFpath = ['../PSFmatrix/' PSFfile];
     pyMatrixObject = initPLF(PSFpath, '');
     forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, 0);
     backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, 0);
+    batchProcessingSize = 30;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -876,29 +887,24 @@ if useDiskVariable,
     m = matfile([savePath 'Recon3D_'  inputFileName(1:end-4)], 'Writable', true);
     disp(['Use disk variable']);
 else
-    movie3Drecon = zeros([volumeResolution(1), volumeResolution(2), volumeResolution(3), numFrames], 'uint16');
+    Xvolumeseries = zeros([volumeResolution(1), volumeResolution(2), volumeResolution(3), numFrames]);
 end
 
 k = 1;
 
-for frame = ReconFrames,
-    disp(['Volume reconstruction of Frame # ' num2str(k) ' / ' num2str(numFrames) ' is ongoing...']);
-    LFIMG = single(LFmovie(:,:,frame));        
-
+while (1)
+    thisBatchSize = min(size(ReconFrames(k:end),2), batchProcessingSize);
+    frames = ReconFrames(k:k+thisBatchSize-1);
+    if thisBatchSize > 1,
+        disp(['Volume reconstruction of Frames # ' num2str(k) '-' num2str(k+thisBatchSize-1) ' / ' num2str(numFrames) ' is ongoing...']);
+    else
+        disp(['Volume reconstruction of Frame # ' num2str(k) ' / ' num2str(numFrames) ' is ongoing...']);
+    end
+    LFIMG = single(LFmovie(:,:,frames));
+    
     %%% Iteration 0
     t0 = tic; Htf = backwardFUN(LFIMG); ttime = toc(t0);
     disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
-
-    %%% Save initial backprojection to disk for future reference
-    backproject = double(Htf);
-%    backproject = uint16(round(1*65535*backproject/max(backproject(:))));
-    backproject = uint16(round(10*backproject));
-    Nnum = size(Ht,3);
-    imwrite( squeeze(backproject(:,:,1)), [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none');
-    for kk = 2:size(backproject,3),
-        imwrite(squeeze(backproject(:,:,kk)),  [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none', 'WriteMode', 'append');
-    end
-
     
     %%% Make initial guess to seed the deconvolution
     if k==1,
@@ -925,15 +931,6 @@ for frame = ReconFrames,
     ttime = toc(t0);
     disp(['Complete calculation took ' num2str(ttime) ' secs']);
 
-    % JT: if using my code, we will have ended up with a 4D result matrix,
-    % even if the third dimension size is 1.
-    % The subsequent Matlab code here expects a 3D result, 
-    % so we squeeze out the additional axis here
-    xgs = size(Xguess);
-    if (length(xgs) == 4) && (xgs(3) == 1)
-        Xguess = squeeze(Xguess);
-    end
-
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     
@@ -959,69 +956,57 @@ for frame = ReconFrames,
             Xvolume( :,(end-1*Nnum+1:end), :) = 0;
         end
         tic;
-        m.movie3Drecon(:,:,:,k) = Xvolume;
+        m.movie3Drecon(:,:,:,k:k+thisBatchSize-1) = permute(Xvolume, [1,2,4,3]);
         ttime = toc;
         disp(['Writing time: ' num2str(ttime) ' secs']);
     else
-        Xvolume = uint16(round(65535*MV3Dgain*XguessCPU));
-        if edgeSuppress,            
-            Xvolume( (1:1*Nnum), :,:) = 0;
-            Xvolume( (end-1*Nnum+1:end), :,:) = 0;
-            Xvolume( :,(1:1*Nnum), :) = 0;
-            Xvolume( :,(end-1*Nnum+1:end), :) = 0;
-        end
-        movie3Drecon(:,:,:,k) = Xvolume;
+        Xvolumeseries(:,:,:,k:k+thisBatchSize-1) = permute(XguessCPU, [1,2,4,3]);
     end
 
-    
-    k = k + 1;
+    k = k + thisBatchSize;
+    if k > size(ReconFrames,2),
+        break
+    end
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 disp('Post-processing the result...');
-if GPUcompute,
-    Xguess = gather(Xguess);
+
+if edgeSuppress,            
+    Xvolumeseries( (1:1*Nnum), :,:) = 0;
+    Xvolumeseries( (end-1*Nnum+1:end), :,:) = 0;
+    Xvolumeseries( :,(1:1*Nnum), :) = 0;
+    Xvolumeseries( :,(end-1*Nnum+1:end), :) = 0;
 end
-
-
-
-
-XguessFinal = double(XguessCPU);
-if saturate,
-    XguessSAVE1 = uint16(round(1*65535*XguessFinal/max(XguessFinal(:))));
-    XguessSAVE2 = uint16(round(saturationGain*65535*XguessFinal/max(XguessFinal(:))));    
-    XguessVIEW = uint16(round(saturationGain*65535*XguessFinal/max(XguessFinal(:))));
-else    
-    XguessSAVE1 = uint16(round(1*65535*XguessFinal/max(XguessFinal(:))));
-    XguessSAVE1 = uint16(round(XguessFinal*1e3));
-    XguessVIEW = XguessSAVE1;
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%% Save the results %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-imwrite( squeeze(XguessSAVE1(:,:,1)), [savePath 'Recon3D_' inputFileName(1:end-4) '.tif'], 'Compression', 'none');
-for k = 2:size(XguessSAVE1,3),
-    imwrite(squeeze(XguessSAVE1(:,:,k)),  [savePath 'Recon3D_' inputFileName(1:end-4) '.tif'], 'Compression', 'none', 'WriteMode', 'append');
-end
-if saturate,
-    imwrite( squeeze(XguessSAVE2(:,:,2)), [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '.tif'], 'Compression', 'none');
-    for k = 2:size(XguessSAVE2,3)
-        imwrite(squeeze(XguessSAVE2(:,:,k)),  [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '.tif'], 'Compression', 'none', 'WriteMode', 'append');
-    end        
-end
+disp('Saving to disk...');
+for f = 1:size(Xvolumeseries,4),
+    frame = Xvolumeseries(:,:,:,f);
 
-if strcmp( inputFileName(end-3:end), '.tif')    
-    save([savePath 'Recon3D_'  inputFileName(1:end-4)], 'XguessSAVE1', '-v7.3');      
-elseif strcmp( inputFileName(end-3:end), '.mat')
-    if useDiskVariable,
-        ;
-    else
-        save([savePath 'Recon3D_'  inputFileName(1:end-4)], 'movie3Drecon', '-v7.3');  
+    XguessSAVE = uint16(round(1*65535*frame/max(frame(:))));
+    %XguessSAVE = uint16(round(frame*1e3));
+    destFile = [savePath 'Recon3D_' inputFileName(1:end-4) '_' num2str(f) '.tif'];
+    imwrite( squeeze(XguessSAVE(:,:,1)), destFile, 'Compression', 'none');
+    for k = 2:size(XguessSAVE,3),
+        imwrite(squeeze(XguessSAVE(:,:,k)),  destFile, 'Compression', 'none', 'WriteMode', 'append');
     end
+    
+    if saturate,
+        XguessSAVE2 = uint16(round(saturationGain*65535*frame/max(frame(:))));    
+        destFile = [savePath 'Recon3D_saturate_' inputFileName(1:end-4) '_' num2str(f) '.tif'];
+        imwrite( squeeze(XguessSAVE2(:,:,2)), destFile, 'Compression', 'none');
+        for k = 2:size(XguessSAVE2,3)
+            imwrite(squeeze(XguessSAVE2(:,:,k)),  destFile, 'Compression', 'none', 'WriteMode', 'append');
+        end        
+    end
+end
 
+if (ndims(Xvolumeseries) == 3) || (~useDiskVariable),
+    save([savePath 'Recon3D_'  inputFileName(1:end-4)], 'Xvolumeseries', '-v7.3');      
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
