@@ -784,7 +784,7 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%% PREPARE PARALLAL COMPUTING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%% PREPARE PARALLEL COMPUTING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% This part is not necessary for MATLAB 2014a or later version
 %if parpool('size') == 0 % checking to see if my pool is already open
@@ -885,21 +885,14 @@ for frame = ReconFrames,
     disp(['Volume reconstruction of Frame # ' num2str(k) ' / ' num2str(numFrames) ' is ongoing...']);
     LFIMG = single(LFmovie(:,:,frame));        
 
-    t0 = tic;
-    if (1)    
-        tic; Htf = backwardFUN(LFIMG); ttime = toc(t0);
-        disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
-        assignin('base', 'Htf', Htf)
-    else
-        Htf = evalin('base', 'Htf');
-    end
-    
+    %%% Iteration 0
+    t0 = tic; Htf = backwardFUN(LFIMG); ttime = toc(t0);
+    disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
+
+    %%% Save initial backprojection to disk for future reference
     backproject = double(Htf);
-    disp(size(backproject))
-    disp(max(backproject(:)))
 %    backproject = uint16(round(1*65535*backproject/max(backproject(:))));
     backproject = uint16(round(10*backproject));
-    
     Nnum = size(Ht,3);
     imwrite( squeeze(backproject(:,:,1)), [savePath inputFileName(1:end-4) '_N' num2str(Nnum) '_backproject.tif'], 'Compression', 'none');
     for kk = 2:size(backproject,3),
@@ -907,15 +900,15 @@ for frame = ReconFrames,
     end
 
     
-    %%% Determined initial guess
+    %%% Make initial guess to seed the deconvolution
     if k==1,
         Xguess = Htf;
     elseif indpIter,
+        % Use the initial backprojection as the seed for the deconvolution
         Xguess = Htf;
     else
        ; 
     end
-    
     if k>1,
         if ~indpIter,
             Xguess = contrastAdjust(Xguess, contrast);
@@ -927,17 +920,10 @@ for frame = ReconFrames,
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    if 1
-        Xguess = deconvRL(forwardFUN, backwardFUN, Htf, maxIter, Xguess );
-    else
-        HXguess = forwardFUN(Xguess);
-        temp= uint16(round(HXguess/10.0));
-        disp(['forward shape ' num2str(size(HXguess))])
-        imwrite( squeeze(temp(:,:)), [savePath 'forwardProject_mat.tif']);
-    end
+    Xguess = deconvRL(forwardFUN, backwardFUN, Htf, maxIter, Xguess );
 
     ttime = toc(t0);
-    disp(['Full calculation took ' num2str(ttime) ' secs']);
+    disp(['Complete calculation took ' num2str(ttime) ' secs']);
 
     % JT: if using my code, we will have ended up with a 4D result matrix,
     % even if the third dimension size is 1.
@@ -963,7 +949,7 @@ for frame = ReconFrames,
     end    
     
     
-    %%% Save the results on disk (only if used specified to use disk variable
+    %%% Save the results on disk (only if specified to use disk variable)
     if useDiskVariable,
         Xvolume = uint8(round(255*MV3Dgain*XguessCPU));  
         if edgeSuppress,                 
