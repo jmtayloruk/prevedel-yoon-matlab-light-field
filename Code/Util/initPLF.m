@@ -32,7 +32,7 @@ end
 % Insert path to python source code
 % TODO: I need to install my python code as a proper module,
 %       instead of hard-coding a path here
-pyCodePath = '/Volumes/Development/light-field-flow';
+pyCodePath = '/Users/jonny/Development/light-field-flow';
 if count(py.sys.path, pyCodePath) == 0
     insert(py.sys.path, int32(0), pyCodePath);
 end

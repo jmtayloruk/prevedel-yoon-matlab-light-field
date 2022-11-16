@@ -43,7 +43,7 @@ pattern3D(:,:,3) = rot90( pattern3D(:,:,1) , -2);
 pattern3D(:,:,4) = rot90( pattern3D(:,:,1) , -3);
 % JT: bug fix: this use of 'max' below is rather esoteric and dangerous.
 % It relies on the documented behaviour that 'max' acting on complex
-% numbers will take the element with the maximum *absolute* valid.
+% numbers will take the element with the maximum *absolute* value.
 % HOWEVER, Matlab aggressively down-converts complex numbers to real
 % numbers if their imaginary part is identically zero. This is the case at
 % z=0, at which point 'max' does not behave in the way the original

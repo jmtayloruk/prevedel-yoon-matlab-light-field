@@ -862,11 +862,13 @@ if GPUcompute,
     exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];    
     zeroImageEx = gpuArray(zeros(exsize, 'single'));
     disp(['FFT size is ' num2str(exsize(1)) 'X' num2str(exsize(2))]); 
-elseif 0
+elseif 1
     forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
     backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
     batchProcessingSize = 1;
 else
+    % JT: special option to call through to my fast C/Python projection code.
+    % This is not currently exposed in the GUI, and must be manually enabled by editing the "elseif 1" statement above.
     disp(['Using fast C/Python projection code'])
     PSFpath = ['../PSFmatrix/' PSFfile];
     pyMatrixObject = initPLF(PSFpath, '');
