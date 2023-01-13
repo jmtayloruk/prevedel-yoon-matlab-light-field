@@ -1,4 +1,15 @@
-function hMatrix = initPLF(PSFpath, pythonExecutablePath)
+% This function is written by Jonathan Taylor to set up Python support
+% within matlab to enable calling my fast-light-field code.
+%
+% Function parameters:
+%  PSFpath:  the path to the PSF file (as used within the original Matlab code)
+%  pythonExecutablePath: optional path to the actual python binary itself.
+%                        currently not necessary to specify this, but it
+%                        could be useful if you need to run a specific 
+%                        version of Python for some reason
+%  pythonCodePath:       path to my py-light-field code directory
+
+function hMatrix = initFLF(PSFpath, pythonExecutablePath, pythonCodePath)
 
 if ~strcmp(pythonExecutablePath, '')
     % Caller has specified a python executable path to use
@@ -29,12 +40,9 @@ if ~strcmp(pythonExecutablePath, '')
     end
 end
 
-% Insert path to python source code
-% TODO: I need to install my python code as a proper module,
-%       instead of hard-coding a path here
-pyCodePath = '/Users/jonny/Development/light-field-flow';
-if count(py.sys.path, pyCodePath) == 0
-    insert(py.sys.path, int32(0), pyCodePath);
+% Insert path to my Python source code
+if count(py.sys.path, pythonCodePath) == 0
+    insert(py.sys.path, int32(0), pythonCodePath);
 end
 
 % Create a matrix object, and return it

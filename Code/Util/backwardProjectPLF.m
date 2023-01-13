@@ -1,7 +1,15 @@
-function Backprojection = backwardProjectPLF(H, projection, dummy)
+% This function is written by Jonathan Taylor to provide Python support
+% within matlab to call my fast-light-field code.
+
+function Backprojection = backwardProjectPLF(H, projection, gpu)
 
 % Create a projector
-projector = py.projector.Projector_allC();
+if gpu,
+    py.matlab_wrapper.ErrorIfGPUUnavailable();
+    projector = py.projector.Projector_gpuHelpers();
+else
+    projector = py.projector.Projector_allC();
+end
 
 t0 = tic;
 planes = string(missing); % Represents Python's None

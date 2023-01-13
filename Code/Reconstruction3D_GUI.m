@@ -128,12 +128,11 @@ else
    mkdir('../PSFmatrix/'); 
 end
 fileList = dir('../PSFmatrix/');   
-%disp(fileList)
 PSFfileList = {'Empty'};
 i = 1;
 for k=1:size(fileList,1)-2,
     tempFileName = fileList(k+2).name;    % JT: changed this from i+2 to k+2 (seems to be simply a bug)
-    disp(tempFileName)
+    %disp(tempFileName)
     if strcmp( tempFileName(end-3:end), '.mat' )
         PSFfileList{i} = tempFileName; 
         i = i+1;
@@ -846,35 +845,36 @@ disp(['Image size is ' num2str(volumeResolution(1)) 'X' num2str(volumeResolution
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%% Prepare for GPU computation %%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% Prepare for the chosen reconstruction algorithm %%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 Nnum = size(H,3);
-if GPUcompute,
-    backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
-    forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
-    
-    global zeroImageEx;
-    global exsize;
-    xsize = [volumeResolution(1), volumeResolution(2)];
-    msize = [size(H,1), size(H,2)];
-    mmid = floor(msize/2);
-    exsize = xsize + mmid;  
-    exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];    
-    zeroImageEx = gpuArray(zeros(exsize, 'single'));
-    disp(['FFT size is ' num2str(exsize(1)) 'X' num2str(exsize(2))]); 
-elseif 1
-    forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
-    backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
-    batchProcessingSize = 1;
-else
-    % JT: special option to call through to my fast C/Python projection code.
-    % This is not currently exposed in the GUI, and must be manually enabled by editing the "elseif 1" statement above.
-    disp(['Using fast C/Python projection code'])
+if settingRECON.whichSolver == 1,
     PSFpath = ['../PSFmatrix/' PSFfile];
-    pyMatrixObject = initPLF(PSFpath, '');
-    forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, 0);
-    backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, 0);
+    % JT: EDIT ME - provide the correct path to my fast-light-field Python source code
+    %     (which must also be set up according to the instructions within that module)
+    pyMatrixObject = initFLF(PSFpath, '', '/Users/jonny/Development/fast-light-field');
+    forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, GPUcompute);
+    backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, GPUcompute);
     batchProcessingSize = 30;
+else
+    if GPUcompute,
+        backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
+        forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
+
+        global zeroImageEx;
+        global exsize;
+        xsize = [volumeResolution(1), volumeResolution(2)];
+        msize = [size(H,1), size(H,2)];
+        mmid = floor(msize/2);
+        exsize = xsize + mmid;
+        exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];
+        zeroImageEx = gpuArray(zeros(exsize, 'single'));
+        disp(['FFT size is ' num2str(exsize(1)) 'X' num2str(exsize(2))]);
+    else
+        forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
+        backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
+        batchProcessingSize = 1;
+    end
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

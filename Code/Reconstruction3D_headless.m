@@ -1,17 +1,11 @@
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Volume reconstruction from light field image
+%% GUI-free volume reconstruction from light field image
 %%
-%% Title                : Simultaneous whole-animal 3D-imaging of neuronal activity using light field microscopy
-%% Authors              : Robert Prevedel, Young-Gyu Yoon, Maximilian Hoffmann, Nikita Pak, Gordon Wetzstein, Saul Kato, Tina Schrödel, Ramesh Raskar, Manuel Zimmer, Edward S. Boyden and Alipasha Vaziri
-%% Authors' Affiliation : Massachusetts Institute of Technology & University of Vienna
-%%
-%%
-%%  JT: This file is an edited copy of Reconstruction3D_GUI.m that can run without a GUI.
-%%  This is useful when running on a compute server without a GUI.
-%%  To run it, edit the path in the load() command (below, marked "EDIT ME")
-%%  to point to a previously-generated settings file from a GUI-based run
-%%  (recentsetting_recon.mat contains the last-used GUI settings),
-%%  and/or override some of the settings subsequently in this script (again, see "EDIT ME")
+%% This script is adapted by JT from Reconstruction3D_GUI.m (see that file for original credit)
+%% The purpose is to have a GUI-free reconstruction script
+%% that can be run on servers without a user interface available.
+%% See comments marked "JT: EDIT ME" for places where this crude script needs editing
+%% to customise for a particular experimental dataset to be processed
 %%
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -29,7 +23,7 @@ eqtol = 1e-10;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% JT: EDIT ME - provide the path to the previously-generated settings file to use for this GUI-free reconstruction script
+% JT: EDIT ME - provide the path to a previously-generated settings file to use for this GUI-free reconstruction script
 load('../RUN/recentsetting_recon.mat');
 
 % Standard code to extract variables from the settings file
@@ -135,38 +129,38 @@ disp(['Successfully loaded input data']);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%% Prepare for CPU or GPU computation %%%%%%%%%%%%%%%%%%
+%%%%%%%% Prepare for the chosen reconstruction algorithm %%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-if (projectionMethod == 0),
-    forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
-    backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
-    batchProcessingSize = 1;
-    numZ = size(H,5);
-    Nnum = size(H,3);
-elseif (projectionMethod == 1),
-    backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
-    forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
-    
-    global zeroImageEx;
-    global exsize;
-    xsize = [volumeResolution(1), volumeResolution(2)];
-    msize = [size(H,1), size(H,2)];
-    mmid = floor(msize/2);
-    exsize = xsize + mmid;  
-    exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];    
-    zeroImageEx = gpuArray(zeros(exsize, 'single'));
-    batchProcessingSize = 1;
-    numZ = size(H,5);
-    Nnum = size(H,3);
-else
-    disp(['Using fast C/Python projection code'])
+Nnum = size(H,3);
+if settingRECON.whichSolver == 1,
     PSFpath = ['../PSFmatrix/' PSFfile];
-    pyMatrixObject = initPLF(PSFpath, '');
-    forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, 0);
-    backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, 0);
-    numZ = int64(py.matlab_wrapper.NumZForMatrix(pyMatrixObject));
-    Nnum = int64(py.matlab_wrapper.NnumForMatrix(pyMatrixObject));
+    % JT: EDIT ME - provide the correct path to my fast-light-field Python source code
+    %     (which must also be set up according to the instructions within that module)
+    pyMatrixObject = initFLF(PSFpath, '', '/Users/jonny/Development/fast-light-field');
+    forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, GPUcompute);
+    backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, GPUcompute);
+    batchProcessingSize = 30;
+else
+    if GPUcompute,
+        backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
+        forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
+
+        global zeroImageEx;
+        global exsize;
+        xsize = [volumeResolution(1), volumeResolution(2)];
+        msize = [size(H,1), size(H,2)];
+        mmid = floor(msize/2);
+        exsize = xsize + mmid;
+        exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];
+        zeroImageEx = gpuArray(zeros(exsize, 'single'));
+        disp(['FFT size is ' num2str(exsize(1)) 'X' num2str(exsize(2))]);
+    else
+        forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
+        backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
+        batchProcessingSize = 1;
+    end
 end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%% Check data size  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
