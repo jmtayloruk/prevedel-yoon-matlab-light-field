@@ -45,17 +45,20 @@ useDiskVariable = settingRECON.useDiskVariable;             %% Result can be dir
 
 % JT: EDIT ME - here we override any settings that should be modified compared to the settings file loaded above
 PSFfile = 'PSFmatrix_M22.222NA0.5MLPitch125fml3125from-5to5zspacing5Nnum19lambda520n1.33.mat'
-inputFilePath = '~/Development/prevedel-matlab-light-field/Data/02_Rectified/'
+inputFilePath = '~/prevedel-matlab-light-field/Data/02_Rectified/exampleData/'
 inputFileName = 'Olaf_Nils_LFImagex32.tif'
 maxIter = 4
 LastFrame = 32
 
-% JT: EDIT ME - projectionMethod flag controls what code is used for the light field reconstruction
-%       0: matlab cpu [standard behaviour]
-%       1: matlab gpu [which in my experience is not very efficient, but may be faster than running on CPU]
-%       2: PLF cpu    [uses my C/python projection code, which is an order of magnitude faster,
-%                      especially when processing batches of images from a timelapse]
-projectionMethod = 0
+% JT: EDIT ME - whichSolver and GPUcompute control what code is used for the light field reconstruction
+%       whichSolver=1: Use my C/python projection code, which is an order of magnitude faster,
+%                       especially when processing batches of images from a timelapse
+%       whichSolver=2: Use original Preveden/Yoon Matlab code
+%
+%       GPUcompute=0:  CPU-only code
+%       GPUcompute=1:  Use GPU acceleration
+whichSolver = 1
+GPUcompute = 0
 
 % JT: EDIT ME - matlabHMatrix flag controls how the H matrix is loaded by this matlab code
 %       0: dont load (python code will load the H matrix itself)
