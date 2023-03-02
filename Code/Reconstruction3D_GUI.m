@@ -750,9 +750,19 @@ function Reconstruction3D
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 warning('off');
 addpath('./Util/');
+
+% JT: EDIT ME - provide the correct path to my fast-light-field Python source code
+%     (which must also be set up according to the instructions within that module)
+%     Depending on how your python and matlab is installed, you may find you need to
+%     use the first parameter to initFLF to specify the path to your python binary
+initFLF('', '/Users/jonny/Development/fast-light-field');
+%initFLF('/local/environments/default/default-venv/bin/python', '/home/jt160j/light-field-flow');
+
+
 addpath('./Solver/');
 eqtol = 1e-10;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 load('../RUN/recentsetting_recon.mat');
@@ -762,7 +772,9 @@ GPUcompute =     settingRECON.GPUON;                        %% Decide whether or
 PSFfile =   settingRECON.PSFfile;                           %% PSF matrix file for reconstruction
 inputFileName = settingRECON.inputFileName;                 %% Input data file to be reconstructed
 inputFilePath = settingRECON.inputFilePath;                 %% Input data file path
-whichSolver = settingRECON.whichSolver;                     %% Iterations method. Current version supports only Richardson-Lucy Iteration
+whichSolver = settingRECON.whichSolver;                     %% Iterations method. Richardson-Lucy Iteration is used, but you can choose
+                                                            %%  between the original Preveden/Yoon Matlab code and
+                                                            %%  JT's C/python projection code, which is an order of magnitude faster
 maxIter = str2num(settingRECON.maxIter);                    %% Number of iteration per each frame. Large number of iteration results in higher resolution/contrast at the price of computation time and pronounced artifacts
 FirstFrame = str2num(settingRECON.FirstFrame);              %% If the data is a time series in .mat format, user can decide the range for reconstruction as [FirstFrame:DecimationRatio:LastFrame]
 LastFrame = str2num(settingRECON.LastFrame);                %% If the data is a time series in .mat format, user can decide the range for reconstruction as [FirstFrame:DecimationRatio:LastFrame]
@@ -772,6 +784,12 @@ saturationGain = str2num(settingRECON.saturationGain);      %% Output will be au
 contrast = str2num(settingRECON.contrast);                  %% Contrast adjustment value used if one wants to use the result from last frame as the initial guess for the next frame. contrast<1 is often required to avoid artifact. Low value will result in low contrast in the result.
 edgeSuppress = settingRECON.edgeSuppress;                   %% Since border area in the reconstruction result is often subject to artifacts, user can simply assign zeros to the region by turning this option on.
 useDiskVariable = settingRECON.useDiskVariable;             %% Result can be directly saved the result on disk in a frame-by-frame manner. Recommended for large data. SSD is strongly recommended.
+
+% JT: EDIT ME - matlabHMatrix flag controls how the H matrix is loaded by this matlab code
+%       0: dont load (python code will load the H matrix itself)
+%       1: load from disk (standard behaviour)
+%       2: reload from matlab base namespace on subsequent run (special optimisation saves some time when running repeatedly)
+matlabHMatrix = 1;
 
 
 savePath = ['../Data/03_Reconstructed/' inputFilePath( findstr(inputFilePath, '/Data/02_Rectified/') + 19 : end)];
@@ -794,7 +812,7 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%% Load Data %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-if (1)
+if (matlabHMatrix == 1)
     load(['../PSFmatrix/' PSFfile]);
     if class(H)=='double',
         H = single(H);
@@ -805,7 +823,7 @@ if (1)
     assignin('base', 'H', H)
     assignin('base', 'Ht', Ht)
     assignin('base', 'CAindex', CAindex)
-else
+elseif (matlabHMatrix == 2)
     H = evalin('base', 'H');
     Ht = evalin('base', 'Ht');
     CAindex = evalin('base', 'CAindex');
@@ -825,7 +843,6 @@ if strcmp( inputFileName(end-3:end), '.tif')
         LFmovie(:,:,n) = temp;
         n = n + 1;
     end
-    disp(['max for input ' num2str(max(LFmovie(:)))]);
 elseif strcmp( inputFileName(end-3:end), '.mat')
     load([inputFilePath inputFileName]);  
 else
@@ -836,31 +853,28 @@ disp(['Successfully loaded input data']);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%% Check data size  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-lightFieldResolution = [size(LFmovie,1), size(LFmovie,2)];
-global volumeResolution ;
-volumeResolution = [size(LFmovie,1)  size(LFmovie,2)  size(H,5)];
-disp(['Image size is ' num2str(volumeResolution(1)) 'X' num2str(volumeResolution(2))]); 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%% Prepare for the chosen reconstruction algorithm %%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-Nnum = size(H,3);
-if settingRECON.whichSolver == 1,
-    PSFpath = ['../PSFmatrix/' PSFfile];
-    % JT: EDIT ME - provide the correct path to my fast-light-field Python source code
-    %     (which must also be set up according to the instructions within that module)
-    pyMatrixObject = initFLF(PSFpath, '', '/Users/jonny/Development/fast-light-field');
+global volumeResolution;
+if whichSolver == 1,
+    % Create a matrix object
+    pyMatrixObject = py.psfmatrix.LoadMatrix(['../PSFmatrix/' PSFfile]);
+    % Set up other variables we require
+    Nnum = int64(py.int(pyMatrixObject.Nnum));
+    numZ = int64(py.int(pyMatrixObject.numZ));
+    volumeResolution = [size(LFmovie,1)  size(LFmovie,2)  numZ];
+    % Set up projection functions
     forwardFUN =  @(Xguess) forwardProjectPLF(pyMatrixObject, Xguess, GPUcompute);
     backwardFUN = @(projection) backwardProjectPLF(pyMatrixObject, projection, GPUcompute);
-    batchProcessingSize = 30;
-else
+    % JT: EDIT ME - when reconstructing with my C/python projection code, this variable controls how
+    %       many timepoints are reconstructed in parallel. See publication for details,
+    %       but 16 or 32 is a good batch size if sufficient RAM is available
+    batchProcessingSize = 32;
+else,
+    Nnum = size(H,3);
+    numZ = size(H,5);
+    volumeResolution = [size(LFmovie,1)  size(LFmovie,2)  numZ];
     if GPUcompute,
-        backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
-        forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
-
         global zeroImageEx;
         global exsize;
         xsize = [volumeResolution(1), volumeResolution(2)];
@@ -870,19 +884,27 @@ else
         exsize = [ min( 2^ceil(log2(exsize(1))), 128*ceil(exsize(1)/128) ), min( 2^ceil(log2(exsize(2))), 128*ceil(exsize(2)/128) ) ];
         zeroImageEx = gpuArray(zeros(exsize, 'single'));
         disp(['FFT size is ' num2str(exsize(1)) 'X' num2str(exsize(2))]);
+        % Set up projection functions
+        backwardFUN = @(projection) backwardProjectGPU(Ht, projection );
+        forwardFUN = @(Xguess) forwardProjectGPU( H, Xguess );
     else
+        % Set up projection functions
         forwardFUN =  @(Xguess) forwardProjectACC( H, Xguess, CAindex );
         backwardFUN = @(projection) backwardProjectACC(Ht, projection, CAindex );
-        batchProcessingSize = 1;
     end
+    batchProcessingSize = 1;
 end
+disp(['Image size is ' num2str(volumeResolution(1)) 'X' num2str(volumeResolution(2))]);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%% RUN Reconstruction %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ReconFrames = [FirstFrame:DecimationRatio: min(LastFrame, size(LFmovie,3))];
-numFrames =  length(ReconFrames);
+numFrames = length(ReconFrames);
 if useDiskVariable,
     movie3Drecon = zeros([volumeResolution(1), volumeResolution(2), volumeResolution(3), 2], 'uint8');
     save([savePath 'Recon3D_'  inputFileName(1:end-4)], 'movie3Drecon', '-v7.3');      
@@ -907,7 +929,7 @@ while (1)
     %%% Iteration 0
     t0 = tic; Htf = backwardFUN(LFIMG); ttime = toc(t0);
     disp(['  iter ' num2str(0) ' | ' num2str(maxIter) ', took ' num2str(ttime) ' secs']);
-    
+
     %%% Make initial guess to seed the deconvolution
     if k==1,
         Xguess = Htf;

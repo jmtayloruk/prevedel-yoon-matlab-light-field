@@ -2,14 +2,13 @@
 % within matlab to enable calling my fast-light-field code.
 %
 % Function parameters:
-%  PSFpath:  the path to the PSF file (as used within the original Matlab code)
 %  pythonExecutablePath: optional path to the actual python binary itself.
 %                        currently not necessary to specify this, but it
 %                        could be useful if you need to run a specific 
 %                        version of Python for some reason
 %  pythonCodePath:       path to my py-light-field code directory
 
-function hMatrix = initFLF(PSFpath, pythonExecutablePath, pythonCodePath)
+function hMatrix = initFLF(pythonExecutablePath, pythonCodePath)
 
 if ~strcmp(pythonExecutablePath, '')
     % Caller has specified a python executable path to use
@@ -32,7 +31,12 @@ if ~strcmp(pythonExecutablePath, '')
             pyversion pythonExecutablePath;
         end
     else
-        % Works with matlab 2020a
+        % Different code for matlab 2020a and later
+        % Note that some versions/installs of Matlab really do not like
+        % the python environment changing mid-run.
+        % If you get an error "The environment cannot be changed in this MATLAB session",
+        % you will need to comment out the next four lines entirely,
+        % and make a manual call to pyenv('Version', xxx) when you first open Matlab.
         pythonEnvironment = pyenv;
         if ~strcmp(pythonEnvironment.Executable, pythonExecutablePath)
             pyenv('Version', pythonExecutablePath);
@@ -40,10 +44,19 @@ if ~strcmp(pythonExecutablePath, '')
     end
 end
 
+% These are not necessary, but serve as good debug checks.
+% If import fails here we will get a helpful error message
+% that hopefully indicates what the problem is.
+% If we just try and call a python function later,
+% we will not get an informative message in case of any problems
+py.importlib.import_module('numpy');
+py.importlib.import_module('h5py');
+
 % Insert path to my Python source code
 if count(py.sys.path, pythonCodePath) == 0
     insert(py.sys.path, int32(0), pythonCodePath);
 end
 
-% Create a matrix object, and return it
-hMatrix  = py.psfmatrix.LoadMatrix(PSFpath);
+% Similarly here, this catches any problems importing my python code.
+% If this fails, it might mean the path (above) has not been set correctly.
+py.importlib.import_module('psfmatrix');
